@@ -19,6 +19,7 @@
            #:whole
            #:optionals
            #:rest-body
+           #:rest-name
            #:keys
            #:allow-other-keys
            #:aux

@@ -84,6 +84,7 @@
     (&optional 0 nil)
     (&rest 1 1)
     (&body 1 1)
+    (core:&va-rest 1 1)
     (&key 0 nil)
     (&allow-other-keys 0 0)
     (&aux 0 nil)))
@@ -187,7 +188,8 @@
 	       (error 'multiple-occurrences-of-lambda-list-keyword
 		      :code lambda-list
 		      :keyword keyword)))
-    (when (> (+ (count '&body to-process) (count '&rest to-process)) 1)
+    (when (> (+ (count '&body to-process) (count '&rest to-process) (count 'core:&va-rest to-process))
+             1)
       (error 'both-rest-and-body-occur-in-lambda-list
 	     :code lambda-list))
     ;; Check the order of keywords.
@@ -265,6 +267,9 @@
    ;;  * :none, meaning &rest or &body was not given at all, or
    ;;  * a single pattern.
    (%rest-body :initform :none :initarg :rest-body :accessor rest-body)
+   ;; Either:
+   ;;  * &rest, &body, core:&va-rest
+   (%rest-name :initform '&rest :initarg :rest-name :accessor rest-name)
    ;; Either:
    ;;  * :none, meaning &key was not given at all,
    ;;  * a possibly empty list of &key entries.
@@ -725,7 +730,8 @@
 	  (not (null (cdr positions)))
 	  ;; that keyword is &environment.
 	  (or (eq (elt lambda-list (car positions)) '&rest)
-	      (eq (elt lambda-list (car positions)) '&body)))
+	      (eq (elt lambda-list (car positions)) '&body)
+              (eq (elt lambda-list (car positions)) 'core:&va-rest)))
 	 ;; The arity has already been checked so we know there is
 	 ;; something after it, but we don't know what.
 	 (let ((arg (elt lambda-list (1+ (car positions)))))
@@ -733,9 +739,9 @@
 			(not (constantp arg)))
 	     (error 'rest/body-must-be-followed-by-variable
 		    :code lambda-list))
-	   (values arg (cdr positions))))
+	   (values arg (cdr positions) (elt lambda-list (car positions)))))
 	(t
-	 (values :none positions))))
+	 (values :none positions '&rest))))
 
 (defun parse-whole (lambda-list positions)
   (cond ((and
@@ -767,7 +773,7 @@
 	  collect i))
 
 (defun parse-ordinary-lambda-list (lambda-list)
-  (let ((allowed '(&optional &rest &key &allow-other-keys &aux)))
+  (let ((allowed '(&optional &rest core:&va-rest &key &allow-other-keys &aux)))
     (check-lambda-list-proper lambda-list)
     (check-lambda-list-keywords lambda-list allowed)
     (let ((positions (compute-keyword-positions lambda-list allowed))
@@ -778,7 +784,7 @@
       (setf (values (optionals result) positions)
 	    (parse-all-optionals
 	     lambda-list positions #'parse-ordinary-optional))
-      (setf (values (rest-body result) positions)
+      (setf (values (rest-body result) positions (rest-name result))
 	    (parse-rest/body lambda-list positions))
       (setf (values (keys result) positions)
 	    (parse-all-keys
@@ -793,7 +799,7 @@
       result)))
 	
 (defun parse-generic-function-lambda-list (lambda-list)
-  (let ((allowed '(&optional &rest &key &allow-other-keys)))
+  (let ((allowed '(&optional &rest &key core:&va-rest &allow-other-keys)))
     (check-lambda-list-proper lambda-list)
     (check-lambda-list-keywords lambda-list allowed)
     (let ((positions (compute-keyword-positions lambda-list allowed))
@@ -804,7 +810,7 @@
       (setf (values (optionals result) positions)
 	    (parse-all-optionals
 	     lambda-list positions #'parse-defgeneric-optional))
-      (setf (values (rest-body result) positions)
+      (setf (values (rest-body result) positions (rest-name result))
 	    (parse-rest/body lambda-list positions))
       (setf (values (keys result) positions)
 	    (parse-all-keys
@@ -817,7 +823,7 @@
       result)))
 	
 (defun parse-specialized-lambda-list (lambda-list)
-  (let ((allowed '(&optional &rest &key &allow-other-keys &aux)))
+  (let ((allowed '(&optional &rest core:&va-rest &key &allow-other-keys &aux)))
     (check-lambda-list-proper lambda-list)
     (check-lambda-list-keywords lambda-list allowed)
     (let ((positions (compute-keyword-positions lambda-list allowed))
@@ -828,7 +834,7 @@
       (setf (values (optionals result) positions)
 	    (parse-all-optionals
 	     lambda-list positions #'parse-ordinary-optional))
-      (setf (values (rest-body result) positions)
+      (setf (values (rest-body result) positions (rest-name result))
 	    (parse-rest/body lambda-list positions))
       (setf (values (keys result) positions)
 	    (parse-all-keys
@@ -1430,6 +1436,7 @@
 	    :required (required method-lambda-list)
 	    :optionals (optionals method-lambda-list)
 	    :rest (rest-body method-lambda-list)
+            :rest-name (rest-name method-lambda-list)
 	    :keys (if (eq (keys method-lambda-list) :none)
 		      :none
 		      '())))
@@ -1440,7 +1447,7 @@
 		   `(&optional ,@(optionals parsed-lambda-list)))
 	     ,@(if (eq (rest-body parsed-lambda-list) :none)
 		   '()
-		   `(&rest ,@(rest-body parsed-lambda-list)))
+		   `(,(rest-name parsed-lambda-list) ,@(rest-body parsed-lambda-list)))
 	     ,@(if (eq (keys parsed-lambda-list) :none)
 		   '()
 		   `(&key)))))
